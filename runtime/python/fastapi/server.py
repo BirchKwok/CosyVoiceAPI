@@ -19,6 +19,14 @@ import logging
 from typing import Optional
 import io
 import wave
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 from fastapi import FastAPI, UploadFile, Form, File, HTTPException
 from fastapi.responses import StreamingResponse
@@ -70,55 +78,106 @@ async def hello():
     """
     返回API服务的问候消息
     """
-    return {"message": "你好！我是CosyVoice API服务。很高兴为您服务！", 
-            "version": "1.0", 
+    return {"message": "你好！我是CosyVoice2 API服务。很高兴为您服务！", 
+            "version": "2.0", 
+            "model_type": "CosyVoice2",
+            "sample_rate": cosyvoice.sample_rate,
             "available_endpoints": [
                 "/inference_sft",
                 "/inference_zero_shot", 
                 "/inference_cross_lingual",
-                "/inference_instruct",
+                "/inference_instruct",  # 注意：CosyVoice2不支持此方法
                 "/inference_instruct2",
-                "/voice_clone",
+                "/tts/clone",
                 "/hello"
-            ]}
+            ],
+            "notes": {
+                "inference_instruct": "CosyVoice2不支持此方法，请使用inference_instruct2",
+                "audio_format": "16kHz输入，24kHz输出（CosyVoice2默认）"
+            }}
 
 
 @app.get("/inference_sft")
 @app.post("/inference_sft")
 async def inference_sft(tts_text: str = Form(), spk_id: str = Form()):
-    model_output = cosyvoice.inference_sft(tts_text, spk_id)
-    return StreamingResponse(generate_data(model_output))
+    """SFT模式语音合成"""
+    try:
+        logging.info(f"SFT合成请求: 文本='{tts_text}', 说话人ID='{spk_id}'")
+        model_output = cosyvoice.inference_sft(tts_text, spk_id)
+        return StreamingResponse(generate_data(model_output), media_type="audio/wav")
+    except Exception as e:
+        logging.error(f"SFT合成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"SFT合成失败: {str(e)}")
 
 
 @app.get("/inference_zero_shot")
 @app.post("/inference_zero_shot")
 async def inference_zero_shot(tts_text: str = Form(), prompt_text: str = Form(), prompt_wav: UploadFile = File()):
-    prompt_speech_16k = load_wav(prompt_wav.file, 16000)
-    model_output = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k)
-    return StreamingResponse(generate_data(model_output))
+    """零样本语音合成"""
+    try:
+        logging.info(f"零样本合成请求: 文本='{tts_text}', 参考文本='{prompt_text}'")
+        # 加载参考音频，16kHz输入会被自动重采样
+        prompt_speech_16k = load_wav(prompt_wav.file, 16000)
+        model_output = cosyvoice.inference_zero_shot(tts_text, prompt_text, prompt_speech_16k)
+        return StreamingResponse(generate_data(model_output), media_type="audio/wav")
+    except Exception as e:
+        logging.error(f"零样本合成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"零样本合成失败: {str(e)}")
 
 
 @app.get("/inference_cross_lingual")
 @app.post("/inference_cross_lingual")
 async def inference_cross_lingual(tts_text: str = Form(), prompt_wav: UploadFile = File()):
-    prompt_speech_16k = load_wav(prompt_wav.file, 16000)
-    model_output = cosyvoice.inference_cross_lingual(tts_text, prompt_speech_16k)
-    return StreamingResponse(generate_data(model_output))
+    """跨语言语音合成"""
+    try:
+        logging.info(f"跨语言合成请求: 文本='{tts_text}'")
+        # 加载参考音频，16kHz输入会被自动重采样
+        prompt_speech_16k = load_wav(prompt_wav.file, 16000)
+        model_output = cosyvoice.inference_cross_lingual(tts_text, prompt_speech_16k)
+        return StreamingResponse(generate_data(model_output), media_type="audio/wav")
+    except Exception as e:
+        logging.error(f"跨语言合成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"跨语言合成失败: {str(e)}")
 
 
 @app.get("/inference_instruct")
 @app.post("/inference_instruct")
 async def inference_instruct(tts_text: str = Form(), spk_id: str = Form(), instruct_text: str = Form()):
-    model_output = cosyvoice.inference_instruct(tts_text, spk_id, instruct_text)
-    return StreamingResponse(generate_data(model_output))
+    """
+    指令式合成接口
+    注意：CosyVoice2不支持inference_instruct，需要提供参考音频使用inference_instruct2
+    """
+    try:
+        # CosyVoice2不支持inference_instruct方法
+        if hasattr(cosyvoice, 'inference_instruct'):
+            model_output = cosyvoice.inference_instruct(tts_text, spk_id, instruct_text)
+        else:
+            # CosyVoice2不支持这个方法，返回错误提示
+            raise HTTPException(
+                status_code=400, 
+                detail="CosyVoice2不支持inference_instruct方法，请使用inference_instruct2并提供参考音频"
+            )
+        return StreamingResponse(generate_data(model_output))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"指令式合成失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"指令式合成失败: {str(e)}")
 
 
 @app.get("/inference_instruct2")
 @app.post("/inference_instruct2")
 async def inference_instruct2(tts_text: str = Form(), instruct_text: str = Form(), prompt_wav: UploadFile = File()):
-    prompt_speech_16k = load_wav(prompt_wav.file, 16000)
-    model_output = cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_speech_16k)
-    return StreamingResponse(generate_data(model_output))
+    """指令式合成2（CosyVoice2支持的版本）"""
+    try:
+        logging.info(f"指令式合成2请求: 文本='{tts_text}', 指令='{instruct_text}'")
+        # 加载参考音频，16kHz输入会被自动重采样
+        prompt_speech_16k = load_wav(prompt_wav.file, 16000)
+        model_output = cosyvoice.inference_instruct2(tts_text, instruct_text, prompt_speech_16k)
+        return StreamingResponse(generate_data(model_output), media_type="audio/wav")
+    except Exception as e:
+        logging.error(f"指令式合成2失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"指令式合成2失败: {str(e)}")
 
 
 @app.get("/tts/clone")
@@ -180,11 +239,13 @@ if __name__ == '__main__':
                         default=model_dir.as_posix(),
                         help='local path or modelscope repo id')
     args = parser.parse_args()
+    
+    # 强制使用CosyVoice2
     try:
         cosyvoice = CosyVoice2(args.model_dir)
-    except Exception:
-        try:
-            cosyvoice = CosyVoice(args.model_dir)
-        except Exception:
-            raise TypeError('no valid model_type!')
+        logging.info(f"成功加载CosyVoice2模型，采样率: {cosyvoice.sample_rate}Hz")
+    except Exception as e:
+        logging.error(f"加载CosyVoice2模型失败: {str(e)}")
+        raise TypeError(f'无法加载CosyVoice2模型: {str(e)}')
+    
     uvicorn.run(app, host="0.0.0.0", port=args.port)
