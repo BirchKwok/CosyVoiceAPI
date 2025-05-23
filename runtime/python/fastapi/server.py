@@ -101,9 +101,9 @@ async def inference_instruct2(tts_text: str = Form(), instruct_text: str = Form(
     return StreamingResponse(generate_data(model_output))
 
 
-@app.get("/tts/voice_clone")
-@app.post("/tts/voice_clone")
-async def voice_clone(
+@app.get("/tts/clone")
+@app.post("/tts/clone")
+async def tts_clone(
     text: str = Form(..., description="要合成的文本"),
     prompt_audio: UploadFile = File(..., description="参考音频文件，用于声音克隆"),
     prompt_text: Optional[str] = Form(None, description="参考音频的文本内容（可选）"),
