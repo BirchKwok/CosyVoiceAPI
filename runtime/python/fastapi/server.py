@@ -17,6 +17,8 @@ import sys
 import argparse
 import logging
 from typing import Optional
+import io
+import wave
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 from fastapi import FastAPI, UploadFile, Form, File, HTTPException
 from fastapi.responses import StreamingResponse
@@ -40,9 +42,27 @@ app.add_middleware(
 
 
 def generate_data(model_output):
+    """生成WAV格式的音频数据"""
+    # 收集所有音频数据
+    audio_chunks = []
     for i in model_output:
-        tts_audio = (i['tts_speech'].numpy() * (2 ** 15)).astype(np.int16).tobytes()
-        yield tts_audio
+        audio_data = (i['tts_speech'].numpy() * (2 ** 15)).astype(np.int16)
+        audio_chunks.append(audio_data)
+    
+    # 将所有音频数据合并
+    if audio_chunks:
+        full_audio = np.concatenate(audio_chunks)
+        
+        # 创建WAV文件，使用模型的采样率
+        wav_buffer = io.BytesIO()
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(1)  # 单声道
+            wav_file.setsampwidth(2)  # 16位
+            wav_file.setframerate(cosyvoice.sample_rate)  # 使用模型的采样率
+            wav_file.writeframes(full_audio.tobytes())
+        
+        wav_buffer.seek(0)
+        yield wav_buffer.read()
 
 
 @app.get("/hello")
